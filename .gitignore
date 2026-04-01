@@ -18,6 +18,7 @@ backend/__pycache__/
 backend/**/*.pyc
 backend/**/*.pyo
 backend/**/*.pyd
+backend/service-account.json
 __pycache__/
 *.py[cod]
 *.pyo
