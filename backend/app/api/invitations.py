@@ -246,6 +246,22 @@ def get_invitation_by_token(token: str, db: Session = Depends(get_db)):
             invitation.status = 'opened'
         db.commit()
     
+    # Получаем вишлист события
+    from app.models.wishlist import Wishlist
+    wishlist_items = db.query(Wishlist).filter(
+        Wishlist.event_id == event.id,
+        Wishlist.status == 'active'
+    ).all()
+    
+    # Получаем все бронирования для этого события
+    from app.models.wishlist_reservation import WishlistReservation
+    reservations = db.query(WishlistReservation).filter(
+        WishlistReservation.wishlist_item_id.in_([item.id for item in wishlist_items])
+    ).all()
+    
+    # Создаем словарь бронирований для быстрого поиска
+    reservation_map = {r.wishlist_item_id: r for r in reservations}
+    
     return PublicInvitation(
         id=invitation.id,
         event_title=event.title,
@@ -255,8 +271,23 @@ def get_invitation_by_token(token: str, db: Session = Depends(get_db)):
         event_notes=event.notes,
         guest_email=invitation.guest_email,
         guest_name=invitation.guest_name,
+        # is_birthday_person=invitation.is_birthday_person,
         token=invitation.token,
-        status=invitation.status
+        status=invitation.status,
+        wishlist=[
+            {
+                'id': item.id,
+                'title': item.title,
+                'description': item.description,
+                'url': item.url,
+                'price': item.price,
+                'priority': item.priority,
+                'reserved_by_me': bool(reservation_map.get(item.id) and reservation_map[item.id].invitation_id == invitation.id),
+                'reserved_by_other': bool(reservation_map.get(item.id) and reservation_map[item.id].invitation_id != invitation.id),
+                'reserved_by_name': reservation_map[item.id].guest_name if reservation_map.get(item.id) else None
+            }
+            for item in wishlist_items
+        ]
     )
 
 
@@ -296,3 +327,121 @@ def submit_rsvp_public(
     db.refresh(rsvp)
     
     return RSVPOut.from_orm(rsvp)
+
+
+@public_router.post("/rsvp/{token}/wishlist/{item_id}/reserve")
+def reserve_wishlist_item(
+    token: str,
+    item_id: int,
+    db: Session = Depends(get_db)
+):
+    """Гость бронирует подарок из вишлиста"""
+    invitation = db.query(Invitation).filter(Invitation.token == token).first()
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Приглашение не найдено")
+    
+    # Проверяем, что элемент вишлиста существует и принадлежит этому событию
+    from app.models.wishlist import Wishlist
+    wishlist_item = db.query(Wishlist).filter(
+        Wishlist.id == item_id,
+        Wishlist.event_id == invitation.event_id,
+        Wishlist.status == 'active'
+    ).first()
+    
+    if not wishlist_item:
+        raise HTTPException(status_code=404, detail="Подарок не найден")
+    
+    # Проверяем, не забронирован ли уже кем-то другим
+    from app.models.wishlist_reservation import WishlistReservation
+    existing = db.query(WishlistReservation).filter(
+        WishlistReservation.wishlist_item_id == item_id
+    ).first()
+    
+    if existing:
+        if existing.invitation_id == invitation.id:
+            return {"status": "already_reserved_by_you", "message": "Вы уже забронировали этот подарок"}
+        else:
+            raise HTTPException(status_code=409, detail="Этот подарок уже забронирован другим гостем")
+    
+    # Создаем бронирование
+    reservation = WishlistReservation(
+        wishlist_item_id=item_id,
+        invitation_id=invitation.id,
+        guest_name=invitation.guest_name
+    )
+    db.add(reservation)
+    db.commit()
+    
+    return {"status": "reserved", "message": "Подарок успешно забронирован"}
+
+
+@public_router.post("/rsvp/{token}/wishlist/{item_id}/release")
+def release_wishlist_item(
+    token: str,
+    item_id: int,
+    db: Session = Depends(get_db)
+):
+    """Гость отменяет бронирование подарка"""
+    invitation = db.query(Invitation).filter(Invitation.token == token).first()
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Приглашение не найдено")
+    
+    # Ищем бронирование этого гостя на этот подарок
+    from app.models.wishlist_reservation import WishlistReservation
+    reservation = db.query(WishlistReservation).filter(
+        WishlistReservation.wishlist_item_id == item_id,
+        WishlistReservation.invitation_id == invitation.id
+    ).first()
+    
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Бронирование не найдено")
+    
+    db.delete(reservation)
+    db.commit()
+    
+    return {"status": "released", "message": "Бронирование отменено"}
+
+
+@public_router.post("/rsvp/{token}/wishlist/add")
+def add_wishlist_item_as_guest(
+    token: str,
+    item_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Гость добавляет подарок в вишлист"""
+    invitation = db.query(Invitation).filter(Invitation.token == token).first()
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Приглашение не найдено")
+    
+    # Убрана проверка на именинника - теперь любой гость может добавлять подарки
+    # if not invitation.is_birthday_person:
+    #     raise HTTPException(status_code=403, detail="Только именинник может добавлять подарки")
+    
+    from app.models.wishlist import Wishlist
+    
+    # Создаем новый элемент вишлиста
+    wishlist_item = Wishlist(
+        event_id=invitation.event_id,
+        title=item_data.get('title'),
+        description=item_data.get('description'),
+        url=item_data.get('url'),
+        price=item_data.get('price'),
+        priority=item_data.get('priority', 'medium'),
+        status='active'
+    )
+    db.add(wishlist_item)
+    db.commit()
+    db.refresh(wishlist_item)
+    
+    return {
+        "status": "added",
+        "message": "Подарок добавлен в вишлист",
+        "item": {
+            'id': wishlist_item.id,
+            'title': wishlist_item.title,
+            'description': wishlist_item.description,
+            'url': wishlist_item.url,
+            'price': wishlist_item.price,
+            'priority': wishlist_item.priority
+        }
+    }

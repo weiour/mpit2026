@@ -28,18 +28,28 @@ class InvitationService:
         event: Event,
         guest_name: Optional[str],
         guest_email: str,
-        custom_template: Optional[str] = None
+        custom_template: Optional[str] = None,
+        is_birthday_person: bool = False
     ) -> dict:
         """Генерация персонализированного сообщения приглашения через AI"""
         
         guest_display = guest_name or guest_email.split('@')[0]
         
-        system_prompt = (
-            "Ты — дружелюбный помощник по организации мероприятий. "
-            "Твоя задача — написать тёплое, персонализированное приглашение на мероприятие. "
-            "Сообщение должно быть на русском языке, дружелюбным, но не слишком formal. "
-            "Включи ключевые детали мероприятия и призыв к действию (подтвердить участие)."
-        )
+        # Для именинника - другое системное сообщение
+        if is_birthday_person:
+            system_prompt = (
+                "Ты — дружелюбный помощник по организации мероприятий. "
+                "Твоя задача — написать тёплое персонализированное сообщение для именинника. "
+                "Это его праздник! Сообщение должно быть на русском языке, дружелюбным и поздравительным. "
+                "Включи призыв к действию для подтверждения участия и упомяни, что он может добавить подарки в вишлист."
+            )
+        else:
+            system_prompt = (
+                "Ты — дружелюбный помощник по организации мероприятий. "
+                "Твоя задача — написать тёплое, персонализированное приглашение на мероприятие. "
+                "Сообщение должно быть на русском языке, дружелюбным, но не слишком formal. "
+                "Включи ключевые детали мероприятия и призыв к действию (подтвердить участие)."
+            )
         
         event_details = f"""
 Мероприятие: {event.title}
@@ -49,8 +59,40 @@ class InvitationService:
 Описание: {event.notes or ''}
 """
         
-        if custom_template:
-            user_prompt = f"""
+        # Для именинника - другой промпт
+        if is_birthday_person:
+            if custom_template:
+                user_prompt = f"""
+Напиши приглашение для именинника по имени {guest_display} ({guest_email}).
+
+Детали мероприятия:
+{event_details}
+
+Используй этот шаблон как основу, но адаптируй:
+{custom_template}
+
+Сгенерируй:
+1. Тему письма (краткую, привлекающую внимание)
+2. Текст приглашения (2-4 абзаца, тёплый тон, поздравительный)
+3. Упомяни, что он может добавить подарки в вишлист для гостей
+4. Призыв к действию для подтверждения участия
+"""
+            else:
+                user_prompt = f"""
+Напиши приглашение для именинника по имени {guest_display} ({guest_email}).
+
+Детали мероприятия:
+{event_details}
+
+Сгенерируй:
+1. Тему письма (краткую, поздравительную)
+2. Текст приглашения (2-4 абзаца, тёплый тон, персонализированное поздравление)
+3. Упомяни, что он может добавить подарки в вишлист на странице подтверждения
+4. Призыв к действию для подтверждения участия
+"""
+        else:
+            if custom_template:
+                user_prompt = f"""
 Напиши приглашение для гостя по имени {guest_display} ({guest_email}).
 
 Детали мероприятия:
@@ -64,8 +106,8 @@ class InvitationService:
 2. Текст приглашения (2-4 абзаца, тёплый тон)
 3. Призыв к действию для подтверждения участия
 """
-        else:
-            user_prompt = f"""
+            else:
+                user_prompt = f"""
 Напиши приглашение для гостя по имени {guest_display} ({guest_email}).
 
 Детали мероприятия:
@@ -115,9 +157,28 @@ class InvitationService:
             
         except Exception as e:
             # Fallback сообщение если AI недоступен
-            return {
-                'subject': f"Приглашение на {event.title}",
-                'body': f"""Привет, {guest_display}!
+            if is_birthday_person:
+                return {
+                    'subject': f"Приглашение на {event.title}",
+                    'body': f"""Привет, {guest_display}!
+
+Приглашаю тебя на {event.title} — это твой праздник! 🎂
+
+Дата: {event.event_date or 'уточняется'}
+Место: {event.city or 'уточняется'}
+
+Будем рады отпраздновать с тобой! После подтверждения участия ты сможешь добавить подарки в вишлист, которые хотел бы получить.
+
+С наилучшими пожеланиями,
+Организатор
+""",
+                    'full_response': None,
+                    'error': str(e)
+                }
+            else:
+                return {
+                    'subject': f"Приглашение на {event.title}",
+                    'body': f"""Привет, {guest_display}!
 
 Приглашаю тебя на {event.title}.
 
@@ -129,9 +190,9 @@ class InvitationService:
 С наилучшими пожеланиями,
 Организатор
 """,
-                'full_response': None,
-                'error': str(e)
-            }
+                    'full_response': None,
+                    'error': str(e)
+                }
     
     def send_email_invitation(self, invitation: Invitation, subject: str, body: str) -> bool:
         """Отправка приглашения по email через SMTP"""
@@ -235,6 +296,7 @@ class InvitationService:
                     guest_email=guest.email,
                     guest_name=guest.name,
                     guest_phone=guest.phone,
+                    # is_birthday_person=guest.is_birthday_person,
                     token=token,
                     status='pending'
                 )
@@ -249,6 +311,7 @@ class InvitationService:
                         guest_name=guest.name,
                         guest_email=guest.email,
                         custom_template=message_template
+                        # is_birthday_person=guest.is_birthday_person
                     )
                 else:
                     message_data = {

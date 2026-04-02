@@ -197,6 +197,7 @@ export function EventWorkspacePage() {
   const [newGuestName, setNewGuestName] = useState('')
   const [newGuestEmail, setNewGuestEmail] = useState('')
   const [newGuestPhone, setNewGuestPhone] = useState('')
+  const [isBirthdayPerson, setIsBirthdayPerson] = useState(false)
   const [inviteMessage, setInviteMessage] = useState('')
   const [guestDraft, setGuestDraft] = useState('')
   const [sendingInvites, setSendingInvites] = useState(false)
@@ -209,8 +210,6 @@ export function EventWorkspacePage() {
     guests_count: '',
     notes: '',
   })
-
-  const [wishlistLoaded, setWishlistLoaded] = useState(false)
 
   const chatViewportRef = useRef<HTMLDivElement | null>(null)
   const assistantOpen = searchParams.get('assistant') === 'open'
@@ -345,10 +344,10 @@ export function EventWorkspacePage() {
   }, [token, eventId, activeTab, event, recommendations, recommendationsLoading])
 
   useEffect(() => {
-  if (!token || !eventId || activeTab !== 'gifts') return
-    if (wishlistLoaded) return
+    if (!token || !eventId || activeTab !== 'gifts' || !hasMainPlan) return
+    if (wishlistItems.length > 0 || wishlistLoading) return
     void loadWishlist()
-  }, [token, eventId, activeTab, wishlistLoaded])
+  }, [token, eventId, activeTab, hasMainPlan, wishlistItems.length, wishlistLoading])
 
   useEffect(() => {
     if (!token || !eventId || activeTab !== 'guests' || !hasMainPlan) return
@@ -377,18 +376,17 @@ export function EventWorkspacePage() {
     if (!token || !eventId) return
     setWishlistLoading(true)
     try {
-      const response = await fetch(`http://localhost:8000/events/${eventId}/wishlist`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await fetch(`${API_URL}/events/${eventId}/wishlist`, {
+        headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
-        const items = await response.json()
+        const items = (await response.json()) as WishlistItem[]
         setWishlistItems(items)
       }
     } catch (err) {
       console.error('Failed to load wishlist:', err)
     } finally {
       setWishlistLoading(false)
-      setWishlistLoaded(false)
     }
   }
 
@@ -602,7 +600,7 @@ export function EventWorkspacePage() {
     setSendingInvites(true)
     setInvitationsError('')
     try {
-      const guestList: Array<{ email: string; name?: string; phone?: string }> = guestDraft
+      const guestList: Array<{ email: string; name?: string; phone?: string; is_birthday_person?: boolean }> = guestDraft
         .split(/[\n,]/g)
         .map((item) => item.trim())
         .filter(Boolean)
@@ -618,6 +616,7 @@ export function EventWorkspacePage() {
           email: newGuestEmail.trim(),
           name: newGuestName.trim() || undefined,
           phone: newGuestPhone.trim() || undefined,
+          is_birthday_person: isBirthdayPerson,
         })
       }
 
@@ -640,6 +639,7 @@ export function EventWorkspacePage() {
         setNewGuestName('')
         setNewGuestEmail('')
         setNewGuestPhone('')
+        setIsBirthdayPerson(false)
         setInviteMessage('')
         setShowInviteForm(false)
         await loadInvitations()
@@ -830,6 +830,36 @@ export function EventWorkspacePage() {
                 <div className="rounded-[20px] border border-white/10 bg-white/6 p-4 text-white/84">Режим: <span className="text-white">{formatVenueMode(event.venue_mode)}</span></div>
                 <div className="rounded-[20px] border border-white/10 bg-white/6 p-4 text-white/84">Статус: <span className="text-white">{formatEventStatus(event.status)}</span></div>
               </div>
+
+              {event.venue_mode === 'outside' && event.selected_option && event.city && (
+                <div className="mt-5 rounded-[20px] border border-white/10 bg-white/6 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55 mb-3">Забронировать / Найти на карте</div>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={`https://2gis.ru/search/${encodeURIComponent(event.city + ' ' + event.selected_option)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-[14px] bg-[#00b4f0] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                      </svg>
+                      2GIS
+                    </a>
+                    <a
+                      href={`https://yandex.ru/maps/?text=${encodeURIComponent(event.city + ' ' + event.selected_option)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-[14px] bg-[#fc3f1d] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                      </svg>
+                      Яндекс Карты
+                    </a>
+                  </div>
+                </div>
+              )}
             </article>
 
             <article className="panel p-6 sm:p-8">
@@ -1233,6 +1263,15 @@ export function EventWorkspacePage() {
                 <input type="email" placeholder="Email гостя *" className="field" value={newGuestEmail} onChange={(e) => setNewGuestEmail(e.target.value)} />
                 <input type="text" placeholder="Имя гостя" className="field" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} />
                 <input type="tel" placeholder="Телефон (необязательно)" className="field md:col-span-2" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} />
+                <label className="flex items-center gap-2 cursor-pointer md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={isBirthdayPerson}
+                    onChange={(e) => setIsBirthdayPerson(e.target.checked)}
+                    className="w-4 h-4 rounded border-white/20 bg-white/10 text-brand-orange focus:ring-brand-orange"
+                  />
+                  <span className="text-sm text-slate-300">🎂 Этот гость - именинник</span>
+                </label>
                 <textarea
                   placeholder="Дополнительные email — по одному в строку"
                   className="field min-h-[130px] resize-none md:col-span-2"

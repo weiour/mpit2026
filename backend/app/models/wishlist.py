@@ -18,3 +18,4 @@ class Wishlist(Base):
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
 
     event = relationship("Event", back_populates="wishlist_items")
+    reservations = relationship("WishlistReservation", back_populates="wishlist_item", cascade="all, delete-orphan")

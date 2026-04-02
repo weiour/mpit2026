@@ -26,6 +26,7 @@ class Invitation(Base):
     guest_email = Column(String, nullable=False)
     guest_name = Column(String, nullable=True)
     guest_phone = Column(String, nullable=True)
+    # is_birthday_person = Column(Boolean, default=False)  # REMOVED - колонки нет в БД
     
     # Статус приглашения
     status = Column(String, default=InvitationStatus.PENDING.value)
@@ -54,7 +55,8 @@ class Invitation(Base):
     ai_conversation = Column(Text, nullable=True)  # История диалога с гостем
 
     event = relationship("Event", back_populates="invitations")
-    rsvp = relationship("GuestRSVP", back_populates="invitation", uselist=False)
+    rsvp = relationship("GuestRSVP", back_populates="invitation", uselist=False, cascade="all, delete-orphan", single_parent=True)
+    wishlist_reservations = relationship("WishlistReservation", back_populates="invitation", cascade="all, delete-orphan")
 
 
 class GuestRSVP(Base):

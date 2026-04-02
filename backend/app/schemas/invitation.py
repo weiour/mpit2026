@@ -17,6 +17,7 @@ class GuestCreate(BaseModel):
     email: str = Field(..., description="Email гостя")
     name: Optional[str] = Field(None, description="Имя гостя")
     phone: Optional[str] = Field(None, description="Телефон гостя")
+    # is_birthday_person: bool = Field(False, description="Является ли гость именинником")
     
     @validator('email')
     def validate_email(cls, v):
@@ -37,6 +38,7 @@ class InvitationOut(BaseModel):
     guest_email: str
     guest_name: Optional[str]
     guest_phone: Optional[str]
+    # is_birthday_person: bool
     status: str
     token: Optional[str]
     created_at: datetime
@@ -125,6 +127,20 @@ class AIInvitationMessage(BaseModel):
     subject: str
 
 
+class PublicWishlistItem(BaseModel):
+    """Упрощенная схема вишлиста для публичной страницы"""
+    id: int
+    title: str
+    description: str | None = None
+    url: str | None = None
+    price: int | None = None
+    priority: str | None = None
+    # Статус бронирования
+    reserved_by_me: bool = False  # Текущий гость забронировал
+    reserved_by_other: bool = False  # Другой гость забронировал
+    reserved_by_name: str | None = None  # Имя гостя, который забронировал
+
+
 class PublicInvitation(BaseModel):
     """Схема для публичной страницы приглашения (RSVP)"""
     id: int
@@ -135,8 +151,10 @@ class PublicInvitation(BaseModel):
     event_notes: Optional[str]
     guest_email: str
     guest_name: Optional[str]
+    # is_birthday_person: bool
     token: str
     status: str
+    wishlist: list[PublicWishlistItem] = []
     
     class Config:
         from_attributes = True
